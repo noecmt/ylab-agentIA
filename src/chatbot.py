@@ -28,5 +28,8 @@ if __name__ == "__main__":
         user_prompt = input("You: ")
         if user_prompt.lower() in ['exit', 'quit']:
             break
-        response = reactive_agent(user_prompt)
+        if "je m'appelle" in user_prompt.lower(): 
+            user_name = user_prompt.split()[-1] 
+
+        response = reactive_agent("Prénom :" + user_name + " " + user_prompt)
         print(f"Agent: {response}")
