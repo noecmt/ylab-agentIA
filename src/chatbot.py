@@ -1,8 +1,9 @@
 from langchain_ollama import OllamaLLM
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma 
+from langchain_chroma import Chroma
+from langchain_core.messages import HumanMessage, AIMessage
 
 
 
@@ -17,13 +18,13 @@ store = Chroma(
     persist_directory="./chroma_db"
 )
 
-# Stocker l'historique de conversation
-conversation_history = []
+# Stocker l'historique de conversation (avec résumé automatique)
+conversation_messages = []
+MAX_HISTORY_LENGTH = 10  # Garder seulement les 10 derniers messages
 
-# Template de prompt personnalisé
+# Template de prompt avec résumé
 template = """Tu es un assistant IA serviable et amical. Utilise l'historique de conversation pour répondre de manière cohérente.
 
-Historique de conversation:
 {history}
 
 Humain: {input}
@@ -37,23 +38,47 @@ prompt = PromptTemplate(
 # Créer la chaîne avec LangChain
 chain = prompt | llm | StrOutputParser()
 
+def summarize_old_messages():
+    """
+    Résume les anciens messages si l'historique devient trop long.
+    """
+    global conversation_messages
+    if len(conversation_messages) > MAX_HISTORY_LENGTH:
+        # Garder les 3 premiers messages et résumer les autres
+        old_messages = conversation_messages[3:-3]
+        recent_messages = conversation_messages[-3:]
+        
+        # Créer un résumé des anciens messages
+        summary_prompt = f"Résume brièvement cette conversation en 2-3 phrases:\n"
+        for msg in old_messages:
+            summary_prompt += f"{msg}\n"
+        
+        summary = llm.invoke(summary_prompt)
+        
+        # Remplacer par le résumé
+        conversation_messages = [
+            f"[Résumé des échanges précédents: {summary}]"
+        ] + recent_messages
+        
+        print(f"\n💡 Historique résumé pour optimiser la mémoire.\n")
+
 def reactive_agent_with_memory(user_input):
     """
-    Agent avec mémoire conversationnelle utilisant LangChain.
+    Agent avec mémoire conversationnelle et résumé automatique.
     """
     try:
+        # Résumer si nécessaire
+        summarize_old_messages()
+        
         # Construire l'historique formaté
-        history_text = "\n".join([
-            f"{'Humain' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}" 
-            for msg in conversation_history
-        ])
+        history_text = "\n".join(conversation_messages)
         
         # Générer la réponse
         response = chain.invoke({"history": history_text, "input": user_input})
         
         # Sauvegarder dans l'historique
-        conversation_history.append({"role": "user", "content": user_input})
-        conversation_history.append({"role": "assistant", "content": response})
+        conversation_messages.append(f"Humain: {user_input}")
+        conversation_messages.append(f"Assistant: {response}")
         
         return response.strip()
     except Exception as e:
@@ -69,6 +94,7 @@ if __name__ == "__main__":
             continue
 
         if user_prompt.startswith("reset"):
+            conversation_messages.clear()
             # Supprimer tous les documents de la collection
             try:
                 # Récupérer tous les IDs et les supprimer
@@ -101,6 +127,3 @@ if __name__ == "__main__":
 
         response = reactive_agent_with_memory(user_prompt)
         print(f"Agent: {response}")
-
-
-
